@@ -1,12 +1,19 @@
 # Social-Media-Data-Integration-and-Analysis-using-AWS-Glue--ETL
+
+An end-to-end cloud data engineering project on AWS that ingests Twitter and blog
+social media data from Amazon S3, processes it through an AWS Glue ETL pipeline,
+and outputs tweet engagement counts grouped by user for analysis.
+
+---
+
 ## 🏗️ Architecture Overview
-S3 (Raw Data) → AWS Glue Crawler → Glue Data Catalog → Glue ETL Job → S3 (Output)
+S3 (Raw Data) → AWS Glue Crawlers → Glue Data Catalog → Glue ETL Job → S3 (Output Parquet)
 
 ---
 
 ## ☁️ AWS Services Used
 
-- **Amazon S3** — Raw data storage and processed output
+- **Amazon S3** — Raw data storage and Parquet output
 - **AWS Glue** — Data Catalog, Crawlers, Classifiers, and Visual ETL
 - **IAM** — Role-based access control for Glue
 - **Amazon S3 Select** — SQL querying on output Parquet files
@@ -14,57 +21,74 @@ S3 (Raw Data) → AWS Glue Crawler → Glue Data Catalog → Glue ETL Job → S3
 ---
 
 ## 🪣 S3 Bucket Structure
-etl-cep-279/                  ← Input bucket
-├── product-files/            ← Product data (CSV)
-└── transaction-files/        ← Transaction data (CSV)
-etl-cep-output-279/           ← Output bucket
-└── [Parquet output files]
+etl-twitter-blog1/          ← Input bucket
+├── blog-data/              ← Blog post data (CSV)
+└── etl-social-media/       ← Twitter/social media data (CSV)
+etl-cep-output1/            ← Output bucket
+└── [29 Parquet output files]
 
 ---
 
 ## 📋 Project Steps
 
 ### 1. S3 Setup
-- Created input bucket `etl-cep-279` (US East, N. Virginia)
-- Created two subfolders: `product-files/` and `transaction-files/`
-- Created output bucket `etl-cep-output-279`
+- Created input bucket `etl-twitter-blog1` (US East, N. Virginia)
+- Created two subfolders: `blog-data/` and `etl-social-media/`
+- Created output bucket `etl-cep-output1`
 
 ### 2. AWS Glue Data Catalog
-- Created database `abc-retail` in AWS Glue
+- Created database `social_media_data` in AWS Glue
 
 ### 3. Classifiers
-Set up two CSV classifiers to correctly parse the data files:
-- `cust-classifier` — for product data
-- `txnclass` — for transaction data
+Set up two CSV classifiers for schema detection:
+- `twitter_data` — for social media/tweet data
+- `blog_data` — for blog post data
 
 ### 4. IAM Role
-- Created `glue-role` with permissions for AWS Glue to access S3 and the Data Catalog
+- Reused `glue-role` with full permissions for AWS Glue to access S3 and the Data Catalog
 
-### 5. Crawler
-- Created crawler `retail_crawl` pointing to `s3://etl-cep-279/transaction-files/`
-- Assigned `txnclass` classifier and `glue-role`
-- Target database: `abc-retail`
-- Crawler ran successfully in ~40 seconds, creating 1 table
+### 5. Crawlers
+Created and ran two crawlers, both targeting `social_media_data` database:
 
-### 6. ETL Job (`etl-cep-job1`)
+| Crawler | Source | Status | Duration |
+|---|---|---|---|
+| `tweet-crawl` | `etl-social-media/` folder | Completed | 1 min 7s |
+| `blog-crawler` | `blog-data/` folder | Completed | 1 min 9s |
+
+Both ran successfully and created tables in the Glue Data Catalog.
+
+### 6. ETL Job (`etl-cep-job`)
 Built a Visual ETL pipeline in AWS Glue Studio with the following nodes:
 
 | Step | Transform | Description |
 |---|---|---|
-| Source 1 | AWS Glue Data Catalog | Reads `txntransaction_files` table |
-| Source 2 | AWS Glue Data Catalog | Reads `product_files` table |
-| Transform 1 | Join | Inner join on `productid = product id` |
-| Transform 2 | Drop Fields | Removes duplicate/unwanted columns |
-| Transform 3 | Regex Extractor | Extracts numeric sales value from `sales` column into `Netsales` using regex `\d+` |
-| Transform 4 | Aggregate | Groups by `product_category` and `ship_mode`, computes average `sales` |
-| Target | Amazon S3 | Writes output as Parquet to `etl-cep-output-279` |
+| Source 1 | AWS Glue Data Catalog | Reads `etl_social_media` table (tweets) |
+| Source 2 | AWS Glue Data Catalog | Reads `blog_data` table |
+| Transform 1 | Join | Inner join on `user id = user id` |
+| Transform 2 | Drop Fields | Removes duplicate `user id` column from right side |
+| Transform 3 | Regex Extractor | Extracts hashtags from `tweet text` column using regex `#(\w+)` into new `hashtags` column |
+| Transform 4 | Aggregate | Groups by `tweet id`, counts tweet occurrences |
+| Target | Amazon S3 | Writes output as Parquet (Snappy compressed) to `etl-cep-output1` |
 
 - Job type: Spark (Glue 5.0, G.1X, 10 DPUs)
-- Job ran successfully in **1 minute 43 seconds**
+- Job ran successfully in **1 minute 14 seconds**
+- Output: **29 Parquet part files** generated
 
 ### 7. Output Verification
-- Queried output Parquet file using S3 Select (SQL)
-- Result: `Standard Class, Auto & Accessories` — confirmed correct aggregation
+Queried output Parquet files using S3 Select:
+
+```sql
+SELECT * FROM s3object s LIMIT 5
+```
+
+Sample results showed tweet counts per user ID:
+
+| User ID | Tweet Count |
+|---------|-------------|
+| 1032    | 8           |
+| 1054    | 1           |
+| 1073    | 2           |
+| 1010    | 4           |
 
 ---
 
@@ -73,19 +97,28 @@ Built a Visual ETL pipeline in AWS Glue Studio with the following nodes:
 | Service | Purpose |
 |---|---|
 | Amazon S3 | Data lake storage |
-| AWS Glue Crawlers | Schema discovery |
-| AWS Glue Data Catalog | Centralized metadata |
-| AWS Glue Visual ETL | No-code data transformation |
+| AWS Glue Crawlers | Schema discovery for both data sources |
+| AWS Glue Data Catalog | Centralized metadata store |
+| AWS Glue Visual ETL | No-code data transformation pipeline |
 | IAM | Permissions and security |
-| S3 Select | SQL on Parquet output |
+| S3 Select | SQL querying on Parquet output |
 
 ---
 
 ## 📌 Key Concepts Demonstrated
 
-- Cloud data lake architecture on AWS
-- ETL pipeline design with join, filter, and aggregation
-- Schema inference using Glue Crawlers and custom Classifiers
-- IAM role configuration for Glue
-- Parquet output format for efficient querying
+- Multi-source social media data ingestion
+- Joining heterogeneous datasets (tweets + blog posts) on a common key
+- Hashtag extraction using Regex in Glue ETL
+- Engagement aggregation (tweet count per user)
+- Parquet output with Snappy compression for efficient storage
 - SQL querying on S3 using S3 Select
+
+---
+
+## 🚀 How to Reproduce
+
+1. Upload your Twitter and blog CSV files to the respective S3 folders
+2. Run both Glue crawlers to register schemas in the Data Catalog
+3. Open the Glue Visual ETL job and run `etl-cep-job`
+4. Query output Parquet files in `etl-cep-output1` using S3 Select
